@@ -1,28 +1,50 @@
+// =================================================================================================
+// eModbus: Copyright 2020 by Michael Harwerth, Bert Melis and the contributors to ModbusClient
+//               MIT license - see license.md for details
+// =================================================================================================
+// Includes: <Arduino.h> for Serial etc., WiFi.h for WiFi support
 #include <Arduino.h>
 #include <WiFi.h>
-#include <HCSR04.h>
 
 // Modbus server TCP
 #include "ModbusServerWiFi.h"
 
 #ifndef MY_SSID
-#define MY_SSID "HUAWEI-2.4G-tgnh"
+#define MY_SSID "SENAI_IOT"
 #endif
 #ifndef MY_PASS
-#define MY_PASS "UFMDZgVg"
+#define MY_PASS "V3]u6Nm=b~1H^LG[z<D+lO"
 #endif
 
 char ssid[] = MY_SSID;                     // SSID and ...
 char pass[] = MY_PASS;                     // password for the WiFi network used
 
-UltraSonicDistanceSensor distanceSensor(18, 5);  // Initialize sensor that uses digital pins 18 and 5.
+int PinTrigger = 5; // Pino usado para disparar os pulsos do sensor
+int PinEcho = 18; // pino usado para ler a saida do sensor
+
+float TempoEcho = 0;
+const float VelocidadeSom_mporus = 0.000340; // em metros por microsegundo
+
+unsigned long timer_i = 0;
+unsigned long timer_f = 0;
+
 int i = 0;
-float SensorMed,auxMed,AuxReadFloat = 0;
-uint16_t ReadMed,ReadFloat = 0;
+float SensorMed,ReadMed,ReadFloat,auxMed = 0;
+
 // Create server
 ModbusServerWiFi MBserver;
 
-uint16_t memo[32];                     // Test server memory: 32 words
+uint16_t memo[32]; // Test server memory: 32 words
+
+
+float CalculaDistancia(){
+  digitalWrite(PinTrigger,HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PinTrigger,LOW);
+
+  TempoEcho = pulseIn(PinEcho, HIGH);
+  return(((TempoEcho*VelocidadeSom_mporus)/2)*100);
+}
 
 // Server function to handle FC 0x03 and 0x04
 ModbusMessage FC03(ModbusMessage request) {
@@ -41,16 +63,10 @@ ModbusMessage FC03(ModbusMessage request) {
   response.add(request.getServerID(), request.getFunctionCode(), (uint8_t)(words * 2));
   // Request for FC 0x03?
   if (request.getFunctionCode() == READ_HOLD_REGISTER) {
-    response.add(ReadMed); // Dado do sensor
-    response.add(ReadFloat); // Dado do sensor
 
-    Serial.print(distanceSensor.measureDistanceCm());
-    Serial.print("--");
-    Serial.print(ReadMed);
-    Serial.print("--");
-    Serial.print(AuxReadFloat);
-    Serial.print("--");
-    Serial.println(ReadFloat);
+  response.add(uint16_t(ReadMed)); // Dado do sensor
+  response.add(uint16_t(ReadFloat)); // Dado do sensor
+
   } else {
     // No, this is for FC 0x04. Response is random
     for (uint8_t i = 0; i < words; ++i) {
@@ -64,13 +80,19 @@ ModbusMessage FC03(ModbusMessage request) {
 
 // Setup() - initialization happens here
 void setup() {
-// Init Serial monitor
+
+  pinMode(PinTrigger, OUTPUT);
+  digitalWrite(PinTrigger, LOW);
+  pinMode(PinEcho, INPUT); // configura pino ECHO como entrada
+
+  // Init Serial monitor
   Serial.begin(115200);
   while (!Serial) {}
   Serial.println("__ OK __");
 
-// Connect to WiFi
+  // Connect to WiFi
   WiFi.begin(ssid, pass);
+ 
   delay(200);
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(". ");
@@ -78,7 +100,6 @@ void setup() {
   }
   IPAddress wIP = WiFi.localIP();
   Serial.printf("WIFi IP address: %u.%u.%u.%u\n", wIP[0], wIP[1], wIP[2], wIP[3]);
-
 // Set up test memory
   for (uint16_t i = 0; i < 32; ++i) {
     memo[i] = (i * 2) << 8 | ((i * 2) + 1);
@@ -91,26 +112,30 @@ void setup() {
 
 // loop() - nothing done here today!
 void loop() {
+  timer_i = micros();
   static unsigned long lastMillis = 0;
   if (millis() - lastMillis > 10000) {
     lastMillis = millis();
     Serial.printf("free heap: %d\n", ESP.getFreeHeap());
   }
-    // DEBUG
-      for(i = 0; i < 100;i++)
+  if (millis() - lastMillis > 1000) 
+  {
+    for (i = 0; i <= 100; i++)
     {
-      SensorMed += distanceSensor.measureDistanceCm()/100;
+      SensorMed += CalculaDistancia()/100;
     }
-
+  
     auxMed = SensorMed;
     ReadMed = uint16_t(auxMed); // Inteiro
-    AuxReadFloat = round(ReadMed - auxMed);  //Flutuante
-    ReadFloat = uint16_t(AuxReadFloat);
+    ReadFloat = auxMed - ReadMed; //Flutuante
+    ReadFloat = uint16_t((ReadFloat)*100);
     SensorMed = 0;
+    Serial.print(CalculaDistancia());
+    Serial.print(" --- ");
+    Serial.print(uint16_t(ReadMed));
+    Serial.print(" --- ");
+    Serial.println(uint16_t(ReadFloat));
+    lastMillis = millis();
+  }
 
-    // Serial.print(distanceSensor.measureDistanceCm());
-    // Serial.print("--");
-    // Serial.print(ReadMed);
-    // Serial.print("--");
-    // Serial.println(ReadFloat);
 }
